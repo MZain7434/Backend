@@ -1,6 +1,8 @@
 const express = require("express");
 const mongoose = require("mongoose");
 const jwtAuth = require("../lib/jwtAuth");
+const authKeys = require("../lib/authKeys");
+const jwt = require("jsonwebtoken");
 
 const User = require("../db/User");
 const Candidate = require("../db/Candidate");
@@ -14,7 +16,7 @@ const router = express.Router();
 // To add new job
 router.post("/jobs", jwtAuth, (req, res) => {
   const user = req.user;
-
+console.log(user);
   if (user.type != "recruiter") {
     res.status(401).json({
       message: "You don't have permissions to add jobs",
@@ -26,7 +28,7 @@ router.post("/jobs", jwtAuth, (req, res) => {
     console.log(user.companyName);
     // do something with the companyName value
   });
-  
+
   const data = req.body;
 
   let job = new Job({
@@ -58,175 +60,41 @@ router.post("/jobs", jwtAuth, (req, res) => {
 });
 
 // to get all the jobs [pagination] [for recruiter personal and for everyone]
-router.get("/jobs", jwtAuth, (req, res) => {
-  let user = req.user;
-
-  let findParams = {};
-  let sortParams = {};
-
-  // const page = parseInt(req.query.page) ? parseInt(req.query.page) : 1;
-  // const limit = parseInt(req.query.limit) ? parseInt(req.query.limit) : 10;
-  // const skip = page - 1 >= 0 ? (page - 1) * limit : 0;
-
-  // to list down jobs posted by a particular recruiter
-  if (user.type === "recruiter" && req.query.myjobs) {
-    findParams = {
-      ...findParams,
-      userId: user._id,
-    };
-  }
-
-  if (req.query.q) {
-    findParams = {
-      ...findParams,
-      title: {
-        $regex: new RegExp(req.query.q, "i"),
-      },
-    };
-  }
-
-  if (req.query.jobType) {
-    let jobTypes = [];
-    if (Array.isArray(req.query.jobType)) {
-      jobTypes = req.query.jobType;
-    } else {
-      jobTypes = [req.query.jobType];
-    }
-    console.log(jobTypes);
-    findParams = {
-      ...findParams,
-      jobType: {
-        $in: jobTypes,
-      },
-    };
-  }
-
-  if (req.query.salaryMin && req.query.salaryMax) {
-    findParams = {
-      ...findParams,
-      $and: [
-        {
-          salary: {
-            $gte: parseInt(req.query.salaryMin),
-          },
-        },
-        {
-          salary: {
-            $lte: parseInt(req.query.salaryMax),
-          },
-        },
-      ],
-    };
-  } else if (req.query.salaryMin) {
-    findParams = {
-      ...findParams,
-      salary: {
-        $gte: parseInt(req.query.salaryMin),
-      },
-    };
-  } else if (req.query.salaryMax) {
-    findParams = {
-      ...findParams,
-      salary: {
-        $lte: parseInt(req.query.salaryMax),
-      },
-    };
-  }
-
-  if (req.query.duration) {
-    findParams = {
-      ...findParams,
-      duration: {
-        $lt: parseInt(req.query.duration),
-      },
-    };
-  }
-
-  if (req.query.asc) {
-    if (Array.isArray(req.query.asc)) {
-      req.query.asc.map((key) => {
-        sortParams = {
-          ...sortParams,
-          [key]: 1,
-        };
-      });
-    } else {
-      sortParams = {
-        ...sortParams,
-        [req.query.asc]: 1,
-      };
-    }
-  }
-
-  if (req.query.desc) {
-    if (Array.isArray(req.query.desc)) {
-      req.query.desc.map((key) => {
-        sortParams = {
-          ...sortParams,
-          [key]: -1,
-        };
-      });
-    } else {
-      sortParams = {
-        ...sortParams,
-        [req.query.desc]: -1,
-      };
-    }
-  }
-
-  console.log(findParams);
-  console.log(sortParams);
-
-  // Job.find(findParams).collation({ locale: "en" }).sort(sortParams);
-  // .skip(skip)
-  // .limit(limit)
-
-  let arr = [
-    {
-      $lookup: {
-        from: "recruiterinfos",
-        localField: "userId",
-        foreignField: "userId",
-        as: "recruiter",
-      },
-    },
-    { $unwind: "$recruiter" },
-    { $match: findParams },
-  ];
-
-  if (Object.keys(sortParams).length > 0) {
-    arr = [
-      {
-        $lookup: {
-          from: "recruiterinfos",
-          localField: "userId",
-          foreignField: "userId",
-          as: "recruiter",
-        },
-      },
-      { $unwind: "$recruiter" },
-      { $match: findParams },
-      {
-        $sort: sortParams,
-      },
-    ];
-  }
-
-  console.log(arr);
-
-  Job.aggregate(arr)
-    .then((posts) => {
-      if (posts == null) {
-        res.status(404).json({
-          message: "No job found",
-        });
-        return;
-      }
-      res.json(posts);
+router.get("/jobs", (req, res) => {
+  const authorizationHeader = req.headers.authorization;
+  const token = authorizationHeader ? authorizationHeader.split(" ")[1] : null;
+  const type = req.headers.type || null;
+  if (token === null || type === null) {
+    // No token or type present in the headers, send back all the jobs in the response
+    Job.find()
+    .then((jobs) => {
+      res.status(200).json(jobs);
     })
     .catch((err) => {
-      res.status(400).json(err);
-    });
+      res.status(500).json({
+          message: "Error retrieving jobs",
+        });
+      });
+    } else {
+      if (type == "recruiter") {
+        const decoded = jwt.verify(token, authKeys.jwtSecretKey);
+        const userId = decoded._id;
+        
+        Job.find({ userId: userId })
+          .then((jobs) => {
+            res.status(200).json(jobs);
+          })
+          .catch((err) => {
+            res.status(500).json({
+              message: "Error retrieving jobs",
+              error: err,
+            });
+          });
+        
+    }else{
+      // candidate work here.
+    }
+  }
 });
 
 // to get info about a particular job
@@ -477,8 +345,7 @@ router.put("/user", jwtAuth, (req, res) => {
         if (data.profile) {
           Candidate.profile = data.profile;
         }
-        Candidate
-          .save()
+        Candidate.save()
           .then(() => {
             res.json({
               message: "User information updated successfully",

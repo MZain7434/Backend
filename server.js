@@ -23,9 +23,6 @@ if (!fs.existsSync("./public")) {
 if (!fs.existsSync("./public/resume")) {
   fs.mkdirSync("./public/resume");
 }
-if (!fs.existsSync("./public/profile")) {
-  fs.mkdirSync("./public/profile");
-}
 
 const app = express();
 const port = 4444;

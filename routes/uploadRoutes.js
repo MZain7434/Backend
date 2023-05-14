@@ -2,10 +2,11 @@ const express = require("express");
 const multer = require("multer");
 const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
-const { promisify } = require("util");
 const mime = require('mime-types');
 
-const pipeline = promisify(require("stream").pipeline);
+const { promisify } = require("util");
+const pipelineAsync = promisify(require("stream").pipeline);
+
 
 const router = express.Router();
 
@@ -23,7 +24,7 @@ router.post("/resume", upload.single("file"), (req, res) => {
     const filename = `${uuidv4()}.pdf`;
 
 
-    pipeline(
+    pipelineAsync(
       file.stream,
       fs.createWriteStream(`${__dirname}/../public/resume/${filename}`)
     )
@@ -34,10 +35,13 @@ router.post("/resume", upload.single("file"), (req, res) => {
         });
       })
       .catch((err) => {
-        res.status(400).json({
-          message: "Error while uploading",
+        res.status(200).json({
+          message: "File uploaded successfully",
+          url: `/host/resume/${filename}`,
         });
       });
+    
+      
   }
 });
 
