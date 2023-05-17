@@ -22,8 +22,8 @@ let schema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    maxExperience: {
-      type: String,
+    minExperienceDuration: {
+      type: Number,
       required: true,
     },
     location: {

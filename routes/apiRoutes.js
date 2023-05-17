@@ -13,10 +13,9 @@ const Rating = require("../db/Rating");
 
 const router = express.Router();
 
-// To add new job
+// To add new job  OK
 router.post("/jobs", jwtAuth, (req, res) => {
   const user = req.user;
-console.log(user);
   if (user.type != "recruiter") {
     res.status(401).json({
       message: "You don't have permissions to add jobs",
@@ -30,6 +29,7 @@ console.log(user);
   });
 
   const data = req.body;
+  console.log(data);
 
   let job = new Job({
     userId: user._id,
@@ -37,7 +37,7 @@ console.log(user);
     company: data.company,
     minEducation: data.minEducation,
     minExperience: data.minExperience,
-    maxExperience: data.maxExperience,
+    minExperienceDuration: data.minExperienceDuration,
     location: data.location,
     maxApplicants: data.maxApplicants,
     maxPositions: data.maxPositions,
@@ -55,6 +55,7 @@ console.log(user);
       res.json({ message: "Job added successfully to the database" });
     })
     .catch((err) => {
+      console.log(err);
       res.status(400).json(err);
     });
 });
@@ -64,35 +65,78 @@ router.get("/jobs", (req, res) => {
   const authorizationHeader = req.headers.authorization;
   const token = authorizationHeader ? authorizationHeader.split(" ")[1] : null;
   const type = req.headers.type || null;
+
   if (token === null || type === null) {
     // No token or type present in the headers, send back all the jobs in the response
     Job.find()
-    .then((jobs) => {
-      res.status(200).json(jobs);
-    })
-    .catch((err) => {
-      res.status(500).json({
+      .then((jobs) => {
+        res.status(200).json(jobs);
+      })
+      .catch((err) => {
+        res.status(500).json({
           message: "Error retrieving jobs",
+          error: error.message,
         });
       });
-    } else {
-      if (type == "recruiter") {
-        const decoded = jwt.verify(token, authKeys.jwtSecretKey);
-        const userId = decoded._id;
-        
-        Job.find({ userId: userId })
-          .then((jobs) => {
-            res.status(200).json(jobs);
-          })
-          .catch((err) => {
-            res.status(500).json({
-              message: "Error retrieving jobs",
-              error: err,
-            });
+  } else {
+    if (type == "recruiter") {
+      const decoded = jwt.verify(token, authKeys.jwtSecretKey);
+      const userId = decoded._id;
+
+      Job.find({ userId: userId })
+        .then((jobs) => {
+          res.status(200).json(jobs);
+        })
+        .catch((err) => {
+          res.status(500).json({
+            message: "Error retrieving jobs",
+            error: err,
           });
-        
-    }else{
-      // candidate work here.
+        });
+    } else {
+      const decoded = jwt.verify(token, authKeys.jwtSecretKey);
+      const userId = decoded._id;
+      console.log(userId);
+      Candidate.findOne( { userId: userId } )
+        .then((candidate) => {
+          if (!candidate) {
+            return res.status(404).json({ message: "Candidate not found" });
+          }
+
+          const candidateEducation = candidate.education.map(
+            (edu) => edu.degreeCode
+          );
+          
+          const candidateExperienceTitle = candidate.experience.map(
+            (exp) => exp.positionTitle
+          );
+          const candidateExperienceTenure = candidate.experience.map(
+            (exp) => exp.expTenure
+          );
+          const candidateSkills = candidate.skills;
+
+          Job.find({
+            $or: [
+              { minEducation: { $in: candidateEducation } },
+              { minExperience: { $in: candidateExperienceTitle } },
+              { skillsets: { $in: candidateSkills } },
+                
+                  {minExperienceDuration: { $in: candidateExperienceTenure }} ,
+                  //{minExperienceDuration: { $lt: candidateexpTenure }},
+            ]
+          })
+            .then((jobs) => {
+              res.status(200).json(jobs);
+            })
+            .catch((error) => {
+              res.status(500).json({ message: "Error retrieving jobs", error });
+            });
+        })
+        .catch((error) => {
+          res
+            .status(500)
+            .json({ message: "Error retrieving candidate", error });
+        });
     }
   }
 });
@@ -135,8 +179,35 @@ router.put("/jobs/:id", jwtAuth, (req, res) => {
         return;
       }
       const data = req.body;
-      if (data.maxApplicants) {
-        job.maxApplicants = data.maxApplicants;
+      if (data.company) {
+        job.company = data.company;
+      }
+      if (data.jobType) {
+        job.jobType = data.jobType;
+      }
+      if (data.location) {
+        job.location = data.location;
+      }
+      if (data.maxPositions) {
+        job.maxPositions = data.maxPositions;
+      }
+      if (data.minEducation) {
+        job.minEducation = data.minEducation;
+      }
+      if (data.minExperience) {
+        job.minExperience = data.minExperience;
+      }
+      if (data.minExperienceDuration) {
+        job.minExperienceDuration = data.minExperienceDuration;
+      }
+      if (data.salary) {
+        job.salary = data.salary;
+      }
+      if (data.skillsets) {
+        job.skillsets = data.skillsets;
+      }
+      if (data.title) {
+        job.title = data.title;
       }
       if (data.maxPositions) {
         job.maxPositions = data.maxPositions;
@@ -364,7 +435,7 @@ router.put("/user", jwtAuth, (req, res) => {
 // apply for a job [todo: test: done]
 router.post("/jobs/:id/applications", jwtAuth, (req, res) => {
   const user = req.user;
-  if (user.type != "applicant") {
+  if (user.type != "candidate") {
     res.status(401).json({
       message: "You don't have permissions to apply for a job",
     });
@@ -372,7 +443,6 @@ router.post("/jobs/:id/applications", jwtAuth, (req, res) => {
   }
   const data = req.body;
   const jobId = req.params.id;
-
   // check whether applied previously
   // find job
   // check count of active applications < limit
@@ -410,7 +480,7 @@ router.post("/jobs/:id/applications", jwtAuth, (req, res) => {
             },
           })
             .then((activeApplicationCount) => {
-              if (activeApplicationCount < job.maxApplicants) {
+              if (activeApplicationCount < job.maxPositions) {
                 Application.countDocuments({
                   userId: user._id,
                   status: {
@@ -434,8 +504,11 @@ router.post("/jobs/:id/applications", jwtAuth, (req, res) => {
                           application
                             .save()
                             .then(() => {
-                              res.json({
-                                message: "Job application successful",
+                              job.activeApplications += 1;
+                              job.save().then(() => {
+                                res.json({
+                                  message: "Job application successful",
+                                });
                               });
                             })
                             .catch((err) => {
@@ -522,56 +595,157 @@ router.get("/jobs/:id/applications", jwtAuth, (req, res) => {
 // recruiter/applicant gets all his applications [pagination]
 router.get("/applications", jwtAuth, (req, res) => {
   const user = req.user;
+  const userID = user._id;
+
+  if (user.type === "candidate") {
+    Candidate.findOne({ userId: userID })
+      .then((candidate) => {
+        Application.find({ userId: userID })
+          .then((applications) => {
+            const jobIDs = applications.map((application) => application.jobId);
+            const applicationApplyDate = applications.map(
+              (application) => application.dateOfApplication
+            );
+            const applicationStatus = applications.map(
+              (application) => application.status
+            );
+
+            Job.find({ _id: { $in: jobIDs } })
+              .then((jobs) => {
+                const responseData = {
+                  jobs: jobs.map((job) => ({
+                    jobTitle: job.title,
+                    jobCompany: job.company,
+                    jobLocation: job.location,
+                    jobSalary: job.salary,
+                    jobSkill: job.skillsets,
+                    applicationStatus: applicationStatus,
+                    applicationApplyDate: applicationApplyDate,
+                  })),
+                };
+                res.json(responseData); // Send response with candidate, applications, and jobs data
+              })
+              .catch((error) => {
+                res.status(500).json({ error: "Error retrieving jobs" });
+              });
+          })
+          .catch((error) => {
+            res.status(500).json({ error: "Error retrieving applications" });
+          });
+      })
+      .catch((error) => {
+        res.status(500).json({ error: "Error retrieving candidate" });
+      });
+  } else {
+    Recruiter.findOne({ userId: userID })
+      .then((recruiter) => {
+        Application.find({ recruiterId: recruiter.userId })
+          .then((applications) => {
+            const applicationIDs = applications.map((application) => application._id);
+            const jobIDs = applications.map((application) => application.jobId);
+            const candidateIDs = applications.map(
+              (application) => application.userId
+            );
+            const applicationStatus = applications.map(
+              (application) => application.status
+            );
+            const applicationApplyDate = applications.map(
+              (application) => application.dateOfApplication
+            );
+            const sop = applications.map((application) => application.sop);
+            Candidate.find({ userId: { $in: candidateIDs } })
+              .then((candidates) => {
+                const candidateName = candidates.map((candidates) => candidates.name);
+                const candidateEdu = candidates.map((candidate) => candidate.education);
+                const candidateResume = candidates.map((candidate) => candidate.resume);
+                const candidateSkills = candidates.map((candidate) => candidate.skills);
+                Job.find({ _id: { $in: jobIDs } })
+                  .then((jobs) => {
+                    const responseData = {
+                      jobs: jobs.map((job) => ({
+                        jobTitle: job.title,
+                        jobLocation: job.location,
+                        jobSalary: job.salary,
+                        jobSkill: job.skillsets,
+                        applicationIDs: applicationIDs,
+                        candidateName: candidateName,
+                        candidateEducation: candidateEdu,
+                        candidateResume: candidateResume,
+                        candidateSkills: candidateSkills,
+                        sop : sop,
+                        applicationStatus: applicationStatus,
+                        applicationApplyDate: applicationApplyDate,
+                      })),
+                    };
+                    res.json(responseData); // Send response with recruiter, applications, candidates, and jobs data
+                  })
+                  .catch((error) => {
+                    res.status(500).json({ error: "Error retrieving jobs" });
+                  });
+              })
+              .catch((error) => {
+                res.status(500).json({ error: "Error retrieving candidates" });
+              });
+          })
+          .catch((error) => {
+            res.status(500).json({ error: "Error retrieving applications" });
+          });
+      })
+      .catch((error) => {
+        res.status(500).json({ error: "Error retrieving recruiter" });
+      });
+  }
 
   // const page = parseInt(req.query.page) ? parseInt(req.query.page) : 1;
   // const limit = parseInt(req.query.limit) ? parseInt(req.query.limit) : 10;
   // const skip = page - 1 >= 0 ? (page - 1) * limit : 0;
 
-  Application.aggregate([
-    {
-      $lookup: {
-        from: "Candidateinfos",
-        localField: "userId",
-        foreignField: "userId",
-        as: "Candidate",
-      },
-    },
-    { $unwind: "$Candidate" },
-    {
-      $lookup: {
-        from: "jobs",
-        localField: "jobId",
-        foreignField: "_id",
-        as: "job",
-      },
-    },
-    { $unwind: "$job" },
-    {
-      $lookup: {
-        from: "recruiterinfos",
-        localField: "recruiterId",
-        foreignField: "userId",
-        as: "recruiter",
-      },
-    },
-    { $unwind: "$recruiter" },
-    {
-      $match: {
-        [user.type === "recruiter" ? "recruiterId" : "userId"]: user._id,
-      },
-    },
-    {
-      $sort: {
-        dateOfApplication: -1,
-      },
-    },
-  ])
-    .then((applications) => {
-      res.json(applications);
-    })
-    .catch((err) => {
-      res.status(400).json(err);
-    });
+  // Application.aggregate([
+  //   {
+  //     $lookup: {
+  //       from: "Candidateinfos",
+  //       localField: "userId",
+  //       foreignField: "userId",
+  //       as: "Candidate",
+  //     },
+  //   },
+  //   { $unwind: "$Candidate" },
+  //   {
+  //     $lookup: {
+  //       from: "jobs",
+  //       localField: "jobId",
+  //       foreignField: "_id",
+  //       as: "job",
+  //     },
+  //   },
+  //   { $unwind: "$job" },
+  //   {
+  //     $lookup: {
+  //       from: "recruiterinfos",
+  //       localField: "recruiterId",
+  //       foreignField: "userId",
+  //       as: "recruiter",
+  //     },
+  //   },
+  //   { $unwind: "$recruiter" },
+  //   {
+  //     $match: {
+  //       [user.type === "recruiter" ? "recruiterId" : "userId"]: user._id,
+  //     },
+  //   },
+  //   {
+  //     $sort: {
+  //       dateOfApplication: -1,
+  //     },
+  //   },
+  // ])
+  //   .then((applications) => {
+  //     console.log(applications);
+  //     res.json(applications);
+  //   })
+  //   .catch((err) => {
+  //     res.status(400).json(err);
+  //   });
 });
 
 // update status of application: [Applicant: Can cancel, Recruiter: Can do everything] [todo: test: done]
@@ -626,7 +800,6 @@ router.put("/applications/:id", jwtAuth, (req, res) => {
               if (activeApplicationCount < job.maxPositions) {
                 // accepted
                 application.status = status;
-                application.dateOfJoining = req.body.dateOfJoining;
                 application
                   .save()
                   .then(() => {

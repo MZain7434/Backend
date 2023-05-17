@@ -12,7 +12,7 @@ let schema = new mongoose.Schema(
     },
     education: [
       {
-        institutionName: {
+        degreeCode: {
           type: String,
         },
         startYear: {
